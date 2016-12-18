@@ -21,7 +21,14 @@ class SirsiHandler(object):
         br.set_handle_robots(False) # robots.txt says we're not allowed
         print 'Loading login page...'
         br.open(self.url)
-        br.select_form(name="accessform") # Login form
+        try:
+            br.select_form(name="accessform") # Login form
+        except mechanize.FormNotFoundError:
+            dumpfile = "login_page_%s_%s.html" % (number, date.today())
+            print "Login form not found! Saving web page as %s" % dumpfile
+            with open(dumpfile, "wt") as f:
+                f.write(br.response().get_data())
+            raise
         br['user_id'] = number
         br['password'] = pin
         print 'Loading loads list...'
@@ -32,7 +39,7 @@ class SirsiHandler(object):
         # First check if no items
         if "User has no charges" in page:
             return []
-    
+
         # Otherwise look for list of loans
         soup = BeautifulSoup(page)
         loans = []
@@ -45,17 +52,17 @@ class SirsiHandler(object):
                 duedate = row.find('strong').string
                 duedate = datetime.strptime(duedate, "%d/%m/%Y,%H:%M").date()
                 loans.append((duedate, description))
-        
+
         if not loans:
             # Didn't see "User has no charges" so should have found some
             raise Exception("Expected loans list but couldn't find one")
         return loans
-    
+
     def get_user_loans(self, number, pin):
         page = self._get_loans_page(number, pin)
         loans = self._get_loans_list(page)
         return loans
-        
+
 class SpydusHandler(object):
     def __init__(self, url):
         self.url = url
@@ -66,16 +73,16 @@ class SpydusHandler(object):
         # Refreshes are needed to log in, but page uses refresh to timeout
         # after 20min, and mechanize would wait - so limit time
         br.set_handle_refresh(True, max_time=1)
-        
+
         print 'Loading login page...'
         br.open(self.url)
-        br.select_form(nr=0) # Login form - first one - page sets id not name
+        br.select_form(nr=3) # Login form - 4th one - page sets id not name
         br['BRWLID'] = number
         br['BRWLPWD'] = pin
-        
+
         print 'Loading account page...'
         br.submit()
-        
+
         print 'Loading loads list...'
         try:
             response = br.follow_link(text="Current loans")
@@ -91,16 +98,16 @@ class SpydusHandler(object):
         for row in soup.find_all('tr'):
             tds = row.find_all('td')
             if not tds: continue # e.g. header row
-            
+
             description = " ".join(tds[1].stripped_strings)
             duedate = list(tds[2].stripped_strings)[0]
             duedate = datetime.strptime(duedate, "%d %b %Y").date()
-            loans.append((duedate, description))        
+            loans.append((duedate, description))
         if not loans:
             # If there was a page, should have some items on it
             raise Exception("Expected loans list but couldn't find one")
         return loans
-    
+
     def get_user_loans(self, number, pin):
         page = self._get_loans_page(number, pin)
         if page is not None:
